@@ -10,13 +10,17 @@ import android.graphics.Bitmap;
 import android.graphics.Canvas;
 import android.graphics.Matrix;
 import android.graphics.PointF;
+import android.graphics.Rect;
 import android.graphics.RectF;
+import android.graphics.drawable.BitmapDrawable;
 import android.graphics.drawable.Drawable;
 import android.util.AttributeSet;
 import android.util.Log;
 import android.view.ViewConfiguration;
 import android.view.animation.DecelerateInterpolator;
 import android.widget.ImageView;
+
+import java.util.ArrayList;
 
 import it.sephiroth.android.library.imagezoom.graphics.FastBitmapDrawable;
 import it.sephiroth.android.library.imagezoom.utils.IDisposable;
@@ -70,7 +74,7 @@ public abstract class ImageViewTouchBase extends ImageView implements IDisposabl
 
     public static final String TAG = "ImageViewTouchBase";
     @SuppressWarnings ("checkstyle:staticvariablename")
-    protected static boolean DEBUG = false;
+    protected static boolean DEBUG = true;
     public static final float ZOOM_INVALID = -1f;
     protected Matrix mBaseMatrix = new Matrix();
     protected Matrix mSuppMatrix = new Matrix();
@@ -100,6 +104,7 @@ public abstract class ImageViewTouchBase extends ImageView implements IDisposabl
     private Animator mCurrentAnimation;
     private OnDrawableChangeListener mDrawableChangeListener;
     private OnLayoutChangeListener mOnLayoutChangeListener;
+    private ArrayList<Layer> mLayers;
 
     public ImageViewTouchBase(Context context) {
         this(context, null);
@@ -132,6 +137,7 @@ public abstract class ImageViewTouchBase extends ImageView implements IDisposabl
         mMaxFlingVelocity = configuration.getScaledMaximumFlingVelocity();
         mDefaultAnimationDuration = getResources().getInteger(android.R.integer.config_shortAnimTime);
         setScaleType(ScaleType.MATRIX);
+        mLayers = new ArrayList<>();
     }
 
     /**
@@ -230,7 +236,6 @@ public abstract class ImageViewTouchBase extends ImageView implements IDisposabl
                 float scale = 1;
 
                 // retrieve the old values
-                float oldDefaultScale = getDefaultScale(getDisplayType());
                 float oldMatrixScale = getScale(mBaseMatrix);
                 float oldScale = getScale();
                 float oldMinScale = Math.min(1f, 1f / oldMatrixScale);
@@ -303,7 +308,6 @@ public abstract class ImageViewTouchBase extends ImageView implements IDisposabl
                     }
 
                     if (DEBUG) {
-                        Log.d(TAG, "old min scale: " + oldDefaultScale);
                         Log.d(TAG, "old scale: " + oldScale);
                         Log.d(TAG, "new scale: " + scale);
                     }
@@ -596,7 +600,19 @@ public abstract class ImageViewTouchBase extends ImageView implements IDisposabl
 
         float scale = getScale(mBaseMatrix);
 
-        scale = Math.min(1f, 1f / scale);
+        float fw = mBitmapRect.width() / mViewPort.width();
+        float fh = mBitmapRect.height() / mViewPort.height();
+        float scale2 = Math.min(fw, fh);
+
+        if (getDisplayType() == DisplayType.NONE)
+        {
+            scale = 1f / scale / scale2;
+        }
+        else
+        {
+            scale = Math.min(1f, 1f / scale);
+        }
+
         if (DEBUG) {
             Log.i(TAG, "computeMinZoom: " + scale);
         }
@@ -862,6 +878,25 @@ public abstract class ImageViewTouchBase extends ImageView implements IDisposabl
         center(true, true);
     }
 
+    public void zoomIn()
+    {
+        float targetScale = getScale() * 1.5f;
+        if (targetScale > getMaxScale()) {
+            targetScale = getMaxScale();
+        }
+        zoomTo(targetScale, mDefaultAnimationDuration);
+
+    }
+
+    public void zoomOut()
+    {
+        float targetScale = getScale() / 1.5f;
+        if (targetScale < getMinScale()) {
+            targetScale = getMinScale();
+        }
+        zoomTo(targetScale, mDefaultAnimationDuration);
+    }
+
     @SuppressWarnings ("unused")
     protected void onZoom(float scale) {
     }
@@ -904,20 +939,30 @@ public abstract class ImageViewTouchBase extends ImageView implements IDisposabl
         }
     }
 
-    protected void scrollBy(float distanceX, float distanceY, final long durationMs) {
+    protected void scrollBy(float distanceX, float distanceY, final long durationMs)
+    {
+        stopAllAnimations();
+        prepareScrollByAnimator(distanceX, distanceY, durationMs, null);
+        mCurrentAnimation.start();
+    }
+
+    protected void prepareScrollByAnimator(float distanceX, float distanceY, final long durationMs, Animator extraAnimator)
+    {
         final ValueAnimator anim1 = ValueAnimator.ofFloat(0, distanceX).setDuration(durationMs);
         final ValueAnimator anim2 = ValueAnimator.ofFloat(0, distanceY).setDuration(durationMs);
 
-        stopAllAnimations();
-
         mCurrentAnimation = new AnimatorSet();
-        ((AnimatorSet) mCurrentAnimation).playTogether(
-            anim1, anim2
-        );
+        ArrayList<Animator> aniList = new ArrayList<>();
+        aniList.add(anim1);
+        aniList.add(anim2);
+        if(extraAnimator != null)
+        {
+            aniList.add(extraAnimator);
+        }
+        ((AnimatorSet) mCurrentAnimation).playTogether(aniList);
 
         mCurrentAnimation.setDuration(durationMs);
         mCurrentAnimation.setInterpolator(new DecelerateInterpolator());
-        mCurrentAnimation.start();
 
         anim2.addUpdateListener(
             new ValueAnimator.AnimatorUpdateListener() {
@@ -964,7 +1009,14 @@ public abstract class ImageViewTouchBase extends ImageView implements IDisposabl
         );
     }
 
-    protected void zoomTo(float scale, float centerX, float centerY, final long durationMs) {
+    protected void zoomTo(float scale, float centerX, float centerY, final long durationMs)
+    {
+        stopAllAnimations();
+        ValueAnimator animator = prepareZoomAnimator(scale, centerX, centerY, durationMs);
+        animator.start();
+    }
+
+    protected ValueAnimator prepareZoomAnimator(float scale, float centerX, float centerY, final long durationMs) {
         if (scale > getMaxScale()) {
             scale = getMaxScale();
         }
@@ -979,8 +1031,6 @@ public abstract class ImageViewTouchBase extends ImageView implements IDisposabl
         final float destX = centerX + rect.left * scale;
         final float destY = centerY + rect.top * scale;
 
-        stopAllAnimations();
-
         ValueAnimator animation = ValueAnimator.ofFloat(oldScale, finalScale);
         animation.setDuration(durationMs);
         animation.setInterpolator(new DecelerateInterpolator(1.0f));
@@ -994,7 +1044,17 @@ public abstract class ImageViewTouchBase extends ImageView implements IDisposabl
                 }
             }
         );
-        animation.start();
+
+        return animation;
+    }
+
+    public void zoomToAndCenter(float scale, float centerX, float centerY, final long durationMs)
+    {
+        stopAllAnimations();
+        ValueAnimator zoomAnimator = prepareZoomAnimator(scale, centerX, centerY, durationMs);
+        PointF center = getCenter();
+        prepareScrollByAnimator(center.x - centerX, center.y - centerY, durationMs, zoomAnimator);
+        mCurrentAnimation.start();
     }
 
     @Override
@@ -1012,6 +1072,131 @@ public abstract class ImageViewTouchBase extends ImageView implements IDisposabl
             }
         } else {
             super.onDraw(canvas);
+        }
+
+        Matrix current = getImageMatrix();
+        float scalex = getValue(current, Matrix.MSCALE_X);
+        float scaley = getValue(current, Matrix.MSCALE_Y);
+
+        int numLayers = mLayers.size();
+        for (int i = 0; i < numLayers; i++) {
+            Layer layer = mLayers.get(i);
+            if(layer.isVisible())
+            {
+                Drawable drawable = layer.drawable;
+                Matrix matrix = layer.getLayerMatrix();
+                canvas.save(Canvas.MATRIX_SAVE_FLAG);
+                if (layer.isNoScale())
+                {
+                    PointF p = layer.getOffset();
+                    Matrix cancelScale = new Matrix();
+                    cancelScale.postScale(1 / scalex, 1 / scaley, p.x, p.y);
+                    matrix.postConcat(cancelScale);
+                }
+                matrix.postConcat(current);
+                canvas.concat(matrix);
+                drawable.setAlpha(255);
+                drawable.draw(canvas);
+                canvas.restore();
+            }
+        }
+    }
+
+    public Layer addLayer(Drawable d)
+    {
+        return addLayer(d, null);
+    }
+
+    public Layer addLayer(Drawable d, PointF p) {
+        return addLayer(d, p, false);
+    }
+
+    public Layer addLayer(Drawable d, PointF p, boolean isNoScale) {
+        Layer layer = new Layer(d, p, isNoScale);
+        mLayers.add(layer);
+        invalidate();
+        return layer;
+    }
+
+    public class Layer
+    {
+        private Drawable drawable;
+        private Matrix mLayerOffsetMatrix;
+        private Matrix mLayerMatrix;
+        private PointF mOffset;
+        private boolean mVisible;
+        private boolean mNoScale;
+
+        private Layer(Drawable d, PointF offset, boolean isNoScale)
+        {
+            drawable = d;
+            setOffset(offset);
+
+            int w = d.getIntrinsicWidth();
+            int h = d.getIntrinsicHeight();
+
+            mLayerMatrix = new Matrix();
+            mLayerMatrix.postTranslate( -(float)w / 2, -(float)h / 2);
+
+            mVisible = true;
+            mNoScale = isNoScale;
+            Rect bounds = d.getBounds();
+            if (bounds.isEmpty())
+            {
+                if (d instanceof BitmapDrawable || d instanceof FastBitmapDrawable)
+                {
+                    d.setBounds(0, 0, w, h);
+                } else
+                {
+                    String detailMessage = "drawable bounds are empty, use d.setBounds()";
+                    throw new RuntimeException(detailMessage);
+                }
+            }
+            d.setCallback(ImageViewTouchBase.this);
+        }
+
+        private Matrix getLayerMatrix()
+        {
+            Matrix ret = new Matrix();
+            ret.set(mLayerMatrix);
+            ret.postConcat(mLayerOffsetMatrix);
+            return ret;
+        }
+
+        public PointF getOffset()
+        {
+            return mOffset;
+        }
+
+        public void setOffset(PointF offset)
+        {
+            mLayerOffsetMatrix = new Matrix();
+            mOffset = offset;
+            if(offset != null)
+            {
+                mLayerOffsetMatrix.postTranslate(offset.x, offset.y);
+            }
+        }
+
+        private boolean isNoScale()
+        {
+            return mNoScale;
+        }
+
+        public void setNoScale(boolean noScale)
+        {
+            this.mNoScale = noScale;
+        }
+
+        public boolean isVisible()
+        {
+            return mVisible;
+        }
+
+        public void setVisible(boolean visible)
+        {
+            this.mVisible = visible;
+            invalidate();
         }
     }
 }

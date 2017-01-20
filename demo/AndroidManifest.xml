@@ -12,9 +12,11 @@
         android:icon="@drawable/ic_launcher"
         android:label="@string/app_name"
         android:hardwareAccelerated="true"
-	    android:largeHeap="true">
-        <activity android:name=".ImageViewTestActivity" 
-            android:configChanges="orientation|keyboardHidden|screenSize">
+	    android:largeHeap="true"
+        android:theme="@style/AppTheme" >
+        <activity android:name=".ImageViewTestActivity"
+                  android:theme="@style/AppTheme.NoActionBar"
+                  android:configChanges="orientation|keyboardHidden|screenSize">
             <intent-filter>
                 <action android:name="android.intent.action.MAIN" />
                 <category android:name="android.intent.category.LAUNCHER" />

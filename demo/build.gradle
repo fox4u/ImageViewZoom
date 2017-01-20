@@ -3,6 +3,8 @@ apply plugin: 'com.android.application'
 
 dependencies {
     compile project(':library')
+    compile 'com.android.support:appcompat-v7:24.2.1'
+    compile 'com.android.support:design:24.2.1'
 }
 
 android {
@@ -12,7 +14,7 @@ android {
     defaultConfig {
         versionCode 1
         versionName '1.0.0'
-        minSdkVersion 16
+        minSdkVersion 19
         targetSdkVersion ANDROID_BUILD_TARGET_SDK_VERSION as int
     }
 
